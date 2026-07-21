@@ -25,6 +25,51 @@ RUIE/UIQS/<A|B|C|D|E>/<file>  <- no reference
 | EUVP-underwater_dark | 5550 | 14.93 ± 2.12 | 0.6768 ± 0.1042 |
 | **Overall (paired)** | 12325 | 14.81 ± 2.39 | 0.6389 ± 0.1073 |
 
+## Deep learning restoration (CNN simple) — Full-reference metrics (PSNR / SSIM)
+
+Evaluated on the `test` split only (never train/val), from a
+`RestorationCNN` checkpoint trained for 50 epochs on a cloud GPU
+(Kaggle, Tesla T4), batch size 16, L1 loss, Adam (lr=1e-4).
+
+| Dataset | n | PSNR (mean ± std) | SSIM (mean ± std) |
+|---|---|---|---|
+| UIEB | 89 | 18.95 ± 3.41 | 0.8271 ± 0.1065 |
+| EUVP-underwater_imagenet | 370 | 23.96 ± 2.31 | 0.8316 ± 0.0566 |
+| EUVP-underwater_scenes | 219 | 26.82 ± 2.36 | 0.8746 ± 0.0497 |
+| EUVP-underwater_dark | 555 | 22.57 ± 3.84 | 0.9004 ± 0.0724 |
+| **Overall (CNN, test split)** | 1233 | 23.48 ± 3.74 | 0.8699 ± 0.0746 |
+
+### Classical vs. CNN comparison
+
+| Method | n | PSNR (mean ± std) | SSIM (mean ± std) |
+|---|---|---|---|
+| Classical (UDCP) | 12325 | 14.81 ± 2.39 | 0.6389 ± 0.1073 |
+| CNN simple (test split only) | 1233 | 23.48 ± 3.74 | 0.8699 ± 0.0746 |
+
+Note: the classical baseline was measured on 100% of the paired
+datasets (it does not learn, so there is no train/test distinction).
+The CNN is measured strictly on its held-out test split, never seen
+during training -- the comparison is fair, since the CNN's test split
+is a subset of the exact same images the classical method was
+measured on.
+
+The CNN shows a substantial and consistent improvement over the
+classical baseline across all four sub-datasets, with no dataset
+lagging behind -- consistent with the CNN not being subject to the
+two structural limitations documented for UDCP (block artifacts from
+the transmission-map division, and Dark Channel Prior failure on
+large uniform regions).
+
+### Block A closure decision
+
+Per the project's documented decision to escalate to a second deep
+learning architecture (UWCNN/WaterNet) only if the simple CNN proves
+insufficient: given the magnitude and consistency of this improvement,
+Block A restoration is considered closed with the classical baseline
+and this single CNN architecture. No second architecture is planned
+unless future evidence (e.g. evaluation on real river footage)
+indicates otherwise.
+
 ## No-reference metrics (UIQM / UCIQE)
 
 | Dataset | n | UIQM (mean ± std) | UCIQE (mean ± std) |
