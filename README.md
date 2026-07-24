@@ -33,8 +33,7 @@ graph LR
     B --> C[Block C: Mass/Volume Est.]
 ```
 
-**Current status:** Block A is under active development. Blocks B, C, and D
-are planned (see Project Status below).
+**Current status**: Block A (restoration) is complete. Block B (detection) is in progress — pipeline and training script verified, full training run pending. Blocks C and D are planned.
 
 ## Architecture
 
@@ -46,9 +45,13 @@ are planned (see Project Status below).
 3. `underwater_dark_channel_prior` — haze/turbidity removal, with a guided filter refining the transmission map
 
 **Deep learning** (in progress), planned in order of increasing complexity:
-1. Simple CNN encoder-decoder (U-Net-style, light skip connections) — *architecture and data pipeline built, training pending*
-2. Domain-specific architecture (UWCNN or WaterNet)
-3. GAN (FUnIE-GAN), only if the above are insufficient — literature reports texture artifacts in GAN-based underwater restoration relative to more recent CNN hybrids
+1. Simple CNN encoder-decoder — complete, trained (50 epochs), evaluated.
+   Substantial and consistent improvement over classical baseline (see Results).
+2. Domain-specific architecture (UWCNN or WaterNet) — optional extension,
+   not required for Block A closure; may be pursued as capacity allows.
+3. GAN (FUnIE-GAN) — deprioritized given (1) already meets the comparison
+   objective; literature reports texture artifacts in GAN-based methods
+   relative to CNN hybrids.
 
 ## Results
 
@@ -61,6 +64,37 @@ are planned (see Project Status below).
 | EUVP-underwater_scenes | 2185 | 14.45 ± 2.56 | 0.5905 ± 0.1031 |
 | EUVP-underwater_dark | 5550 | 14.93 ± 2.12 | 0.6768 ± 0.1042 |
 | **Overall (paired)** | 12325 | 14.81 ± 2.39 | 0.6389 ± 0.1073 |
+
+### Deep learning (CNN encoder-decoder) — Full-reference metrics
+
+Trained 50 epochs on Kaggle (Tesla T4), evaluated strictly on the held-out
+test split (n=1233, never seen during training).
+
+| Dataset | n | PSNR (mean ± std) | SSIM (mean ± std) |
+|---|---|---|---|
+| UIEB | 89 | 18.95 ± 3.41 | 0.8271 ± 0.1065 |
+| EUVP-underwater_imagenet | 370 | 23.96 ± 2.31 | 0.8316 ± 0.0566 |
+| EUVP-underwater_scenes | 219 | 26.82 ± 2.36 | 0.8746 ± 0.0497 |
+| EUVP-underwater_dark | 555 | 22.57 ± 3.84 | 0.9004 ± 0.0724 |
+| **Overall (test split)** | 1233 | 23.48 ± 3.74 | 0.8699 ± 0.0746 |
+
+### Classical vs. CNN comparison
+
+| Method | n | PSNR (mean ± std) | SSIM (mean ± std) |
+|---|---|---|---|
+| Classical (UDCP) | 12325 | 14.81 ± 2.39 | 0.6389 ± 0.1073 |
+| CNN simple (test split only) | 1233 | 23.48 ± 3.74 | 0.8699 ± 0.0746 |
+
+The CNN shows a substantial and consistent improvement (+8.67 dB PSNR,
++0.231 SSIM) across all four sub-datasets, with no dataset lagging behind.
+Note the coverage difference: the classical baseline is measured on 100% of
+the paired data, while the CNN is measured only on its held-out test split
+(a strict subset of that same data) — this is the correct comparison, since
+reporting the CNN on data it trained on would be misleading. Given this
+result, Block A restoration is closed with these two methods (classical +
+CNN); domain-specific architectures (UWCNN/WaterNet) were not pursued
+further, as the CNN already showed clear, consistent improvement over the
+classical baseline.
 
 ### Classical baseline — No-reference metrics (UIQM / UCIQE)
 
@@ -96,7 +130,9 @@ finding is a metric-reliability caveat, not a restoration defect.
 | [UIEB](https://li-chongyi.github.io/proj_benchmark.html) | Block A, PSNR/SSIM | 890 pairs | Academic use |
 | [EUVP](http://irvlab.cs.umn.edu/resources/euvp-dataset) | Block A, PSNR/SSIM | 12,000+ pairs | Academic use |
 | [RUIE](https://github.com/dlut-dimt/Realworld-Underwater-Image-Enhancement-RUIE-Benchmark) | Block A, no-reference eval | ~3,930 images | Academic / non-commercial use |
-| [RiSID](https://doi.org/10.5281/zenodo.15533743) | Block B, detection (reserved) | — | CC BY 4.0 (Kataoka, Yoshida & Yamamoto, 2025) — requires attribution |
+| [RiSID](https://doi.org/10.5281/zenodo.15533743) | Block B, detection | — | CC BY 4.0 (Kataoka, Yoshida & Yamamoto, 2025) — requires attribution |
+| [TrashCan](https://conservancy.umn.edu/handle/11299/214865) | Block B, detection | 6,008 train / 1,204 val images (Material version) | Free for academic/research use; JAMSTEC permission required for commercial use (Hong, Fulton & Sattar, 2020) |
+| [WPBB](https://github.com/fedezocco/MoreEffEffDetsAndWPBB-TensorFlow/tree/main/WPBB_dataset) | Block B, detection | 900 images (720 train / 180 val) | No explicit license published; released publicly by Van (2022) alongside the associated paper |
 
 Datasets are not included in this repository due to size and licensing;
 see `vision/data/public_datasets/` structure below for how to place them
@@ -139,12 +175,37 @@ python vision/src/restoration/dataset.py
 python vision/src/restoration/train_restoration.py
 ```
 
+Evaluate the trained CNN on the held-out test split:
+
+```bash
+python vision/src/restoration/evaluate_deep_model.py
+```
+
+For Block B (detection), place TrashCan, RiSID, and WPBB under
+`vision/data/public_datasets/`, then convert annotations to a unified
+YOLO-format dataset:
+
+```bash
+python vision/src/detection/convert_annotations.py
+```
+
+Run a quick local smoke test of the detection training script (CPU, small
+fraction of data, 2 epochs):
+
+```bash
+python vision/src/detection/train_yolo.py
+```
+
 ## Project Status
 
 - [x] Classical restoration baseline implemented and formally measured
-- [ ] Deep learning restoration (simple CNN encoder-decoder) — architecture and data pipeline complete, training in progress
-- [ ] Domain-specific restoration architecture (UWCNN/WaterNet)
-- [ ] Detection (YOLO26 vs. YOLOv8) on TrashCan/UNO/RiSID
+- [x] Deep learning restoration (simple CNN encoder-decoder) — trained and evaluated; classical vs. CNN comparison complete
+- [ ] (optional) Domain-specific restoration architecture (UWCNN/WaterNet) — stretch goal
+- [ ] Detection (YOLO26 vs. YOLOv8) on TrashCan/RiSID/WPBB
+  - [x] Unified 9-class scheme defined and closed
+  - [x] Annotation conversion to YOLO format (COCO + PASCAL VOC sources)
+  - [x] Training script with weighted oversampling for class imbalance, verified via smoke test
+  - [ ] Full training run and real comparison results
 - [ ] Mass/volume estimation with underwater camera calibration
 - [ ] Full-pipeline latency and resource benchmarking
 - [x] Modular repository structure, frozen `requirements.txt`
