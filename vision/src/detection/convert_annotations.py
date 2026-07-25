@@ -85,6 +85,22 @@ def _yolo_line_from_segmentation(class_id: int, segmentation: list, img_w: int, 
     x_min, x_max = min(xs), max(xs)
     y_min, y_max = min(ys), max(ys)
 
+    # NOTE: coordinates are intentionally NOT clipped to [0,1] here.
+    # ~133 RiSID images (111 train + 22 val, <1% of the dataset) contain
+    # objects truncated at the frame edge, whose segmentation polygon extends
+    # beyond the actual canvas -> negative or >1.0 coordinates after
+    # normalization. Verified programmatically: the bbox derived from
+    # segmentation matches exactly (326/331 annotations, remainder is only
+    # floating-point rounding) what ultralytics flags as "corrupt" and
+    # automatically discards during training -- confirming this is a real
+    # limitation of the source data, not a bug in this converter.
+    #
+    # Decision: leave these images out of training (do not clip). Clipping
+    # the box to the frame edge would train the model to systematically
+    # underestimate the area of edge-truncated objects -- relevant to
+    # Block C, where bounding box area directly feeds the mass estimation
+    # calculation (calibrated-area method). An underestimation bias here
+    # would silently propagate into the final mass estimate.
     x_center = ((x_min + x_max) / 2) / img_w
     y_center = ((y_min + y_max) / 2) / img_h
     width = (x_max - x_min) / img_w
