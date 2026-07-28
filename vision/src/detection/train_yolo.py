@@ -27,12 +27,20 @@ DATA_YAML = VISION_ROOT / "configs" / "yolo_train_config.yaml"
 CHECKPOINT_DIR = VISION_ROOT / "checkpoints" / "detection"
 NUM_CLASSES = 9
 
-SMOKE_TEST = True  # flip to False for the real Kaggle run
+SMOKE_TEST = True  # safe local default; flipped to False only in the
+                   # Kaggle environment for the actual training run
 
-# Sizes for the real run stay undecided until smoke test results are in.
-MODEL_SIZES = ["n"] if SMOKE_TEST else ["n"]  # TODO: update after smoke test
+# "s" (small): Kataoka et al. (2024) found medium-sized YOLOv8 generalized
+# better than larger sizes on RiSID specifically; "s" balances that finding
+# against GPU budget (two architectures trained back-to-back on one T4).
+MODEL_SIZES = ["n"] if SMOKE_TEST else ["s"]
 
-EPOCHS = 2 if SMOKE_TEST else 100
+# 70 epochs chosen to fit both architectures (yolov8s ~3.9min/epoch,
+# yolo26s ~4.7min/epoch measured via a 3-epoch timing test on the full
+# dataset) within Kaggle's 12h session limit: ~232s*70 + 284s*70 =~
+# 9.6h combined, leaving margin. If results look promising, a longer
+# follow-up run (more epochs) is a separate, later decision.
+EPOCHS = 2 if SMOKE_TEST else 70
 IMG_SIZE = 640
 BATCH = 4 if SMOKE_TEST else 16
 
@@ -45,8 +53,14 @@ ARCH_CONFIGS = {
     "yolo26": {
         "checkpoint_fmt": "yolo26{size}.pt",
         "train_overrides": {
-            # TODO: fill in only with overrides verified against YOLO26's own
-            # docs (e.g. anything tied to its NMS-free head), not assumed.
+            # Floating/submerged debris appears at arbitrary rotations,
+            # unlike COCO's canonical object orientations. Per the official
+            # YOLO26 Training Recipe guide ("Domain-specific imagery"
+            # section): increase degrees if objects appear at arbitrary
+            # rotations. The doc says "increase", not by how much -- 15.0
+            # is a documented, defensible starting point, not an official
+            # value; adjust based on real results.
+            "degrees": 15.0,
         },
     },
 }
