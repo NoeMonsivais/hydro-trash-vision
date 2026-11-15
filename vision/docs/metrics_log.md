@@ -133,3 +133,147 @@ limitations of the classical baseline, whose purpose in this project
 is to serve as a measured comparison point -- not a final restoration
 method. Deep learning architectures (next phase) are expected to be
 more robust to both failure modes.
+
+## Block B — Object Detection (YOLO)
+
+### Dataset composition and class scheme
+
+Three public datasets were combined for object detection:
+TrashCan-Material, RiSID, and WPBB.
+
+The unified detection dataset contains nine classes:
+
+- `trash_etc`
+- `trash_fabric`
+- `trash_fishing_gear`
+- `trash_metal`
+- `trash_paper`
+- `trash_plastic`
+- `trash_rubber`
+- `trash_wood`
+- `rov`
+
+Biological categories from TrashCan were treated as background.
+RiSID's `non_pla` annotations were also excluded from the target
+classes, while its `pla` annotations were mapped to `trash_plastic`.
+WPBB's plastic bags and bottles were mapped to `trash_plastic`.
+
+The combined dataset contains 18,555 annotated instances.
+The most frequent class is `trash_plastic`, with 10,888 instances
+(approximately 58.7% of all annotations).
+
+### Architecture comparison
+
+Two object detection architectures were trained and evaluated:
+YOLOv8s and YOLO26s.
+
+Both models were trained for 70 epochs using the unified
+nine-class dataset. Training was performed on Kaggle using
+an NVIDIA Tesla T4 GPU.
+
+Weighted oversampling was implemented through a custom
+`WeightedDetectionTrainer` using `WeightedRandomSampler`.
+
+YOLO26 used a domain-specific augmentation override of
+`degrees=15.0`. Other training settings followed the
+documented experiment configuration.
+
+| Model | Epochs | mAP50 | mAP50-95 |
+|---|---:|---:|---:|
+| YOLOv8s | 70 | 0.4782 | 0.3363 |
+| YOLO26s | 70 | 0.4106 | 0.2210 |
+
+YOLOv8s achieved the highest performance on both reported
+metrics and was selected as the preferred architecture
+for subsequent pipeline development.
+
+YOLO26s showed a performance plateau around epoch 62,
+whereas YOLOv8s continued improving through epoch 70.
+
+Additional training epochs were not considered necessary
+for the initial architecture selection.
+
+### Known limitation — Low recall for trash_plastic
+
+Despite being the most represented class in the combined
+dataset, `trash_plastic` achieved an AP of 0.2513 in the
+documented evaluation.
+
+A subsequent diagnostic investigation identified:
+
+- Approximately 71% of plastic instances were predicted
+  as background in the analyzed confusion matrix.
+- The primary failure mode was missed detections rather
+  than confusion with other material classes.
+- Plastic objects had the smallest median bounding-box
+  area, approximately ten times smaller than those of
+  other classes.
+- Approximately 70% of plastic annotations originated
+  from RiSID, which contains river-surface images often
+  captured from elevated viewpoints.
+
+The results suggest that object scale and dataset-source
+distribution contribute to the low detection performance.
+
+This limitation is particularly relevant because the
+intended robotic application involves closer-range
+underwater imagery, which differs substantially from
+RiSID's elevated river-surface perspective.
+
+However, improved performance in the target environment
+has not yet been experimentally demonstrated.
+
+The finding is retained as a documented limitation
+rather than treated as evidence of an implementation
+defect.
+
+### RiSID annotation limitations
+
+Two annotation-related issues were identified during
+dataset preparation and training.
+
+First, approximately 85% of RiSID's original bounding-box
+annotations were found to have dimensions scaled to
+approximately 0.667 times their corresponding segmentation
+extent.
+
+This issue was addressed by deriving bounding boxes
+directly from segmentation polygon coordinates.
+
+Second, 133 RiSID images contained annotation coordinates
+outside the valid normalized image range:
+
+- 111 training images.
+- 22 validation images.
+
+These cases originated from segmentation polygons extending
+beyond the image boundaries.
+
+The annotation converter was verified to reproduce the
+source polygons correctly.
+
+The affected images were intentionally excluded by
+Ultralytics rather than clipping their bounding boxes,
+preserving the documented treatment of truncated objects
+for future area-based mass estimation.
+
+### Block B architecture selection and remaining validation
+
+YOLOv8s is selected as the detection architecture based
+on its superior mAP50 and mAP50-95 results.
+
+The architecture comparison and the investigation of
+the `trash_plastic` anomaly are considered complete
+for the current experimental stage.
+
+The following validation remains pending:
+
+- Evaluation on representative close-range river or
+  underwater imagery.
+- Assessment of detection performance under the
+  intended robotic operating conditions.
+- Investigation of how missed detections and bounding-box
+  errors propagate into area-based mass estimation.
+
+No additional architecture training is planned unless
+new experimental evidence demonstrates a need for it.

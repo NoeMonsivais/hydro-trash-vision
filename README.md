@@ -33,7 +33,7 @@ graph LR
     B --> C[Block C: Mass/Volume Est.]
 ```
 
-**Current status**: Block A (restoration) is complete. Block B (detection) is in progress — pipeline and training script verified, full training run pending. Blocks C and D are planned.
+**Current status**: Block A (restoration) is complete. Block B (detection) is in progress — initial YOLOv8s/YOLO26s training and architecture comparison completed, with YOLOv8s selected as the current baseline. Further evaluation and improvements are planned to address known detection limitations, particularly low recall for `trash_plastic`. Blocks C and D are planned.
 
 ## Architecture
 
@@ -44,7 +44,7 @@ graph LR
 2. `clahe_per_channel` — local contrast enhancement in LAB space
 3. `underwater_dark_channel_prior` — haze/turbidity removal, with a guided filter refining the transmission map
 
-**Deep learning** (in progress), planned in order of increasing complexity:
+**Deep learning** (CNN completed; optional extensions listed below):
 1. Simple CNN encoder-decoder — complete, trained (50 epochs), evaluated.
    Substantial and consistent improvement over classical baseline (see Results).
 2. Domain-specific architecture (UWCNN or WaterNet) — optional extension,
@@ -52,6 +52,16 @@ graph LR
 3. GAN (FUnIE-GAN) — deprioritized given (1) already meets the comparison
    objective; literature reports texture artifacts in GAN-based methods
    relative to CNN hybrids.
+
+### Block B — Object Detection
+
+Two detection architectures are being evaluated: YOLOv8s and YOLO26s, using a unified nine-class dataset built from TrashCan-Material, RiSID, and WPBB.
+
+The initial training experiment compared both small (`s`) model variants over 70 epochs. Weighted oversampling was used to mitigate class imbalance.
+
+YOLOv8s achieved the best overall detection metrics and has been selected as the current baseline for further development.
+
+Block B remains under active development. Additional evaluation will focus on the low recall of `trash_plastic`, dataset-source differences, object scale, and potential model improvements.
 
 ## Results
 
@@ -89,8 +99,7 @@ The CNN shows a substantial and consistent improvement (+8.67 dB PSNR,
 +0.231 SSIM) across all four sub-datasets, with no dataset lagging behind.
 Note the coverage difference: the classical baseline is measured on 100% of
 the paired data, while the CNN is measured only on its held-out test split
-(a strict subset of that same data) — this is the correct comparison, since
-reporting the CNN on data it trained on would be misleading. Given this
+(a strict subset of that same data) — the CNN results are restricted to unseen images to avoid training-data leakage. A strictly paired comparison would require evaluating both methods on the identical held-out subset. Given this
 result, Block A restoration is closed with these two methods (classical +
 CNN); domain-specific architectures (UWCNN/WaterNet) were not pursued
 further, as the CNN already showed clear, consistent improvement over the
@@ -105,6 +114,23 @@ classical baseline.
 | RUIE-C | 726 | 3.9786 ± 0.5844 | 54.30 ± 7.41 |
 | RUIE-D | 726 | 4.5576 ± 0.7842 | 49.13 ± 7.61 |
 | RUIE-E | 726 | 4.6304 ± 0.8704 | 50.55 ± 7.90 |
+
+### Object Detection — Initial YOLO Architecture Comparison
+
+YOLOv8s and YOLO26s were trained for 70 epochs on the unified nine-class detection dataset using Kaggle (NVIDIA Tesla T4).
+
+| Model | Epochs | mAP50 | mAP50-95 |
+|---|---:|---:|---:|
+| **YOLOv8s** | 70 | **0.4782** | **0.3363** |
+| YOLO26s | 70 | 0.4106 | 0.2210 |
+
+YOLOv8s outperformed YOLO26s on both reported metrics and was selected as the current detection baseline.
+
+However, the initial evaluation revealed a significant limitation in the detection of `trash_plastic`, despite this class representing approximately 59% of all annotated instances.
+
+The diagnostic investigation identified a high proportion of missed plastic detections, particularly associated with small objects and the elevated river-surface imagery in RiSID.
+
+These findings motivate further evaluation and targeted improvements before considering Block B complete. Detailed results and diagnostic findings are documented in `vision/docs/metrics_log.md`.
 
 ### Known limitations (documented with evidence, see `vision/docs/metrics_log.md`)
 
@@ -122,6 +148,15 @@ classical baseline.
 
 Both restoration artifacts motivate the move to deep learning; the UIQM
 finding is a metric-reliability caveat, not a restoration defect.
+
+**Detection limitations (Block B):**
+
+- `trash_plastic` exhibited low detection performance (AP = 0.2513) despite being the most represented class in the training datasets.
+- Diagnostic analysis showed that approximately 71% of plastic instances were predicted as background, indicating a predominantly missed-detection problem.
+- Plastic objects have substantially smaller median bounding-box areas than other classes, and a large proportion originate from RiSID's elevated river-surface imagery.
+- The extent to which these limitations affect close-range underwater detection remains to be experimentally verified.
+
+Further evaluation is planned before determining whether changes to training, data sampling, input resolution, or model architecture are justified.
 
 ## Datasets Used
 
@@ -196,16 +231,29 @@ fraction of data, 2 epochs):
 python vision/src/detection/train_yolo.py
 ```
 
+The initial full training experiment was performed on Kaggle with GPU acceleration, using both small (`s`) model variants for 70 epochs.
+
+The repository keeps `SMOKE_TEST=True` as the safe default. Reproducing the full training experiment requires explicitly disabling smoke-test mode in the training environment and configuring the dataset paths and GPU resources.
+
+The experiment configuration is defined in `vision/src/detection/train_yolo.py`. Dataset class definitions and reproducible splits are stored under `vision/configs/`.
+
+Full experiment results and known limitations are documented in `vision/docs/metrics_log.md`.
+
 ## Project Status
 
 - [x] Classical restoration baseline implemented and formally measured
 - [x] Deep learning restoration (simple CNN encoder-decoder) — trained and evaluated; classical vs. CNN comparison complete
 - [ ] (optional) Domain-specific restoration architecture (UWCNN/WaterNet) — stretch goal
 - [ ] Detection (YOLO26 vs. YOLOv8) on TrashCan/RiSID/WPBB
-  - [x] Unified 9-class scheme defined and closed
+  - [x] Unified 9-class scheme defined and verified
   - [x] Annotation conversion to YOLO format (COCO + PASCAL VOC sources)
-  - [x] Training script with weighted oversampling for class imbalance, verified via smoke test
-  - [ ] Full training run and real comparison results
+  - [x] Training script with weighted oversampling, verified via smoke test
+  - [x] Initial full training run completed (70 epochs, YOLOv8s and YOLO26s)
+  - [x] Initial architecture comparison completed; YOLOv8s selected as current baseline
+  - [x] Initial `trash_plastic` detection limitation diagnosed and documented
+  - [ ] Additional evaluation of plastic detection performance and dataset-source effects
+  - [ ] Investigate and validate potential improvements to the selected detector
+  - [ ] Evaluate detection performance on representative close-range underwater or river imagery
 - [ ] Mass/volume estimation with underwater camera calibration
 - [ ] Full-pipeline latency and resource benchmarking
 - [x] Modular repository structure, frozen `requirements.txt`
