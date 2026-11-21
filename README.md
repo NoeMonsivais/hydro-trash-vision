@@ -1,7 +1,8 @@
 # HydroTrashVision
 
-Computer vision and AI pipeline for detecting, restoring, and quantifying
-plastic debris in underwater and river footage.
+Modular computer vision and AI pipeline for restoring underwater and river
+imagery, detecting aquatic debris, and developing physically calibrated
+mass estimation capabilities.
 
 ## Problem & Motivation
 
@@ -17,14 +18,29 @@ demonstrable system — buildable and testable with public datasets alone.
 
 ## Pipeline Overview
 
-The full pipeline takes a raw, turbid underwater video frame and produces:
+The target pipeline processes underwater or river imagery through three
+coordinated stages:
 
-1. **Restored image** — corrected for turbidity and color distortion (Block A)
-2. **Detections** — class, bounding box, confidence for each debris object (Block B)
-3. **Estimated mass/volume** per detected object (Block C)
+1. **Image restoration (Block A)** — optional enhancement of underwater
+   imagery to address color degradation, contrast loss, and turbidity.
+2. **Object detection (Block B)** — identification of objects using the
+   project's unified nine-class scheme, returning bounding boxes and
+   confidence scores.
+3. **Mass estimation (Block C)** — per-object mass estimation based on
+   physically justified calibration, with explicit status reporting
+   when an estimate cannot be produced.
 
-Each stage is validated with a documented numerical metric, not qualitative
-assessment.
+The shared data contracts and modular pipeline coordinator are already
+implemented. However, the complete inference workflow using trained
+detection models and calibrated mass estimation is not yet operational.
+
+Mass estimation currently supports three explicit result states:
+`unavailable`, `uncalibrated`, and `estimated`. A numerical mass
+estimate requires valid physical calibration; the pipeline must not
+report unsupported mass values.
+
+The `rov` class represents the underwater vehicle and is not treated
+as waste for mass estimation.
 
 ```mermaid
 graph LR
@@ -33,9 +49,84 @@ graph LR
     B --> C[Block C: Mass/Volume Est.]
 ```
 
-**Current status**: Block A (restoration) is complete. Block B (detection) is in progress — initial YOLOv8s/YOLO26s training and architecture comparison completed, with YOLOv8s selected as the current baseline. Further evaluation and improvements are planned to address known detection limitations, particularly low recall for `trash_plastic`. Blocks C and D are planned.
+**Current status:** Block A restoration algorithms have been implemented
+and experimentally evaluated, and classical/CNN inference adapters are
+available. Block B training and architecture comparison are complete,
+with YOLOv8s selected as the current detection baseline; its inference
+adapter and real-model pipeline integration remain pending.
+
+The modular coordinator and restoration adapters have passed 134
+combined contract, unit, and integration test cases. These tests
+primarily validate interfaces and deterministic behavior, not the
+end-to-end performance of the trained models.
+
+Block C physical mass estimation and Block D full-pipeline benchmarking
+remain pending.
 
 ## Architecture
+
+### Modular Inference Architecture
+
+HydroTrashVision uses a modular, dependency-injected inference
+architecture to separate data validation, execution coordination,
+and model-specific processing.
+
+The current implementation consists of three main components:
+
+- `vision/src/core/contracts.py` — defines validated data contracts
+  (`FramePacket`, `Detection`, `MassEstimate`, and `FrameResult`).
+- `vision/src/pipeline.py` — coordinates restoration, detection, and
+  per-object mass estimation through lightweight `Protocol` interfaces.
+- `vision/src/restoration/inference.py` — implements classical and CNN
+  restoration adapters compatible with the coordinator.
+
+The coordinator defines three component interfaces:
+
+- `Restorer.restore(image)` — optionally restores an image.
+- `Detector.detect(image)` — returns validated object detections.
+- `MassEstimator.estimate(detection, frame)` — returns a mass estimate
+  or an explicit reason why estimation is unavailable.
+
+Restoration is optional. Passing `restorer=None` activates identity
+restoration, preserving the original image without applying an
+enhancement algorithm.
+
+All external pipeline images use BGR channel order, `uint8` data type,
+and `(height, width, 3)` dimensions. Restored images must preserve
+the original frame dimensions, and detections use original-frame
+coordinates.
+
+The coordinator records restoration, detection, mass estimation,
+and total processing times in milliseconds.
+
+#### Restoration Inference Adapters
+
+Two concrete restoration adapters are currently available:
+
+- `ClassicalRestorer` — reuses the existing classical restoration
+  pipeline without duplicating its algorithms.
+- `CNNRestorer` — loads a CNN model, converts BGR images into normalized
+  RGB tensors, performs gradient-free inference, and converts outputs
+  back into BGR `uint8` images.
+
+The CNN adapter preserves image geometry by applying edge padding
+to the next multiple of eight and cropping the restored output back
+to its original dimensions.
+
+The CNN was trained using 256 x 256 images. Although the adapter
+supports other input dimensions, restoration quality at arbitrary
+resolutions has not yet been experimentally validated.
+
+#### Integration Status
+
+The coordinator and restoration adapters have been validated using
+deterministic test doubles, including simulated detection and mass
+estimation components.
+
+A concrete YOLOv8s inference adapter and a physically calibrated
+mass estimator are not yet integrated. Therefore, the current
+implementation should not be considered a fully validated
+end-to-end inference system.
 
 ### Block A — Image Restoration
 
@@ -95,15 +186,21 @@ test split (n=1233, never seen during training).
 | Classical (UDCP) | 12325 | 14.81 ± 2.39 | 0.6389 ± 0.1073 |
 | CNN simple (test split only) | 1233 | 23.48 ± 3.74 | 0.8699 ± 0.0746 |
 
-The CNN shows a substantial and consistent improvement (+8.67 dB PSNR,
-+0.231 SSIM) across all four sub-datasets, with no dataset lagging behind.
-Note the coverage difference: the classical baseline is measured on 100% of
-the paired data, while the CNN is measured only on its held-out test split
-(a strict subset of that same data) — the CNN results are restricted to unseen images to avoid training-data leakage. A strictly paired comparison would require evaluating both methods on the identical held-out subset. Given this
-result, Block A restoration is closed with these two methods (classical +
-CNN); domain-specific architectures (UWCNN/WaterNet) were not pursued
-further, as the CNN already showed clear, consistent improvement over the
-classical baseline.
+The reported aggregate metrics favor the CNN across all four evaluated
+datasets. The overall differences are +8.67 dB PSNR and +0.231 SSIM.
+However, these values describe differences between aggregate results
+computed on different image subsets, not strictly paired improvements.
+
+The classical baseline was evaluated on all 12,325 paired images,
+whereas the CNN was evaluated on its held-out test split of 1,233
+images, which were not used during training. A rigorous paired
+comparison would require evaluating both methods on the same images.
+
+Based on the available experimental evidence, Block A restoration
+is considered closed with the classical baseline and the CNN.
+Domain-specific architectures (UWCNN/WaterNet) were not pursued
+further, although additional validation may be warranted under
+real deployment conditions.
 
 ### Classical baseline — No-reference metrics (UIQM / UCIQE)
 
@@ -180,7 +277,7 @@ JetPack 6.x / PyTorch `cp310` wheel compatibility, needed for future
 deployment to embedded hardware.
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/NoeMonsivais/hydro-trash-vision.git
 cd hydro-trash-vision
 python3.10 -m venv venv
 source venv/bin/activate
@@ -239,10 +336,71 @@ The experiment configuration is defined in `vision/src/detection/train_yolo.py`.
 
 Full experiment results and known limitations are documented in `vision/docs/metrics_log.md`.
 
+### Testing and Validation
+
+The modular inference architecture is validated through automated
+tests using `pytest`.
+
+The current test suites cover shared data contracts, pipeline
+coordination, restoration inference adapters, and integration
+behavior using deterministic test doubles.
+
+Run the combined validation suites from the repository root:
+
+```bash
+python -m pytest \
+  vision/tests/test_contracts.py \
+  vision/tests/test_pipeline.py \
+  vision/tests/test_restoration_inference.py \
+  -v
+```
+
+The latest verified local execution produced:
+
+| Test suite | Passed |
+|---|---:|
+| `test_contracts.py` | 76 |
+| `test_pipeline.py` | 20 |
+| `test_restoration_inference.py` | 38 |
+| **Total** | **134** |
+
+Validation environment:
+
+- Python 3.10.20
+- pytest 9.1.1
+- Local CPU-based test execution
+
+These tests validate data integrity, interface compatibility,
+restoration preprocessing, image geometry, checkpoint loading,
+error handling, and pipeline coordination.
+
+Restoration adapter tests use simulated CNN behavior and temporary
+model weights where appropriate. They do not establish restoration
+quality for the trained CNN checkpoint.
+
+Full end-to-end inference with trained detection models, physical
+mass calibration, and deployment performance remains to be
+experimentally validated.
+
+#### AI-Assisted Development
+
+AI assistance was used to support the design of test cases,
+test doubles, and implementation review, with the objective
+of improving development efficiency and systematic validation.
+
+Reported test outcomes were obtained through local execution
+using `pytest`. AI-generated suggestions and test designs
+were reviewed as development artifacts and are not treated
+as substitutes for experimental evidence.
+
 ## Project Status
 
 - [x] Classical restoration baseline implemented and formally measured
 - [x] Deep learning restoration (simple CNN encoder-decoder) — trained and evaluated; classical vs. CNN comparison complete
+- [x] Shared inference data contracts implemented and validated
+- [x] Modular pipeline coordinator implemented through dependency injection
+- [x] Classical and CNN restoration inference adapters implemented
+- [x] Automated validation completed: 134 contract, unit, and integration test cases passed
 - [ ] (optional) Domain-specific restoration architecture (UWCNN/WaterNet) — stretch goal
 - [ ] Detection (YOLO26 vs. YOLOv8) on TrashCan/RiSID/WPBB
   - [x] Unified 9-class scheme defined and verified
@@ -250,10 +408,12 @@ Full experiment results and known limitations are documented in `vision/docs/met
   - [x] Training script with weighted oversampling, verified via smoke test
   - [x] Initial full training run completed (70 epochs, YOLOv8s and YOLO26s)
   - [x] Initial architecture comparison completed; YOLOv8s selected as current baseline
+  - [ ] Implement and validate YOLOv8s inference adapter for the modular pipeline
   - [x] Initial `trash_plastic` detection limitation diagnosed and documented
   - [ ] Additional evaluation of plastic detection performance and dataset-source effects
   - [ ] Investigate and validate potential improvements to the selected detector
   - [ ] Evaluate detection performance on representative close-range underwater or river imagery
+- [ ] Validate end-to-end inference using trained restoration and detection checkpoints
 - [ ] Mass/volume estimation with underwater camera calibration
 - [ ] Full-pipeline latency and resource benchmarking
 - [x] Modular repository structure, frozen `requirements.txt`

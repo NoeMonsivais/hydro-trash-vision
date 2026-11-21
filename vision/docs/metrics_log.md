@@ -46,19 +46,26 @@ Evaluated on the `test` split only (never train/val), from a
 | Classical (UDCP) | 12325 | 14.81 ± 2.39 | 0.6389 ± 0.1073 |
 | CNN simple (test split only) | 1233 | 23.48 ± 3.74 | 0.8699 ± 0.0746 |
 
-Note: the classical baseline was measured on 100% of the paired
-datasets (it does not learn, so there is no train/test distinction).
-The CNN is measured strictly on its held-out test split, never seen
-during training -- the comparison is fair, since the CNN's test split
-is a subset of the exact same images the classical method was
-measured on.
+The classical baseline was evaluated on all 12,325 paired images,
+whereas the CNN was evaluated strictly on its held-out test split
+of 1,233 images, which were not used during training.
 
-The CNN shows a substantial and consistent improvement over the
-classical baseline across all four sub-datasets, with no dataset
-lagging behind -- consistent with the CNN not being subject to the
-two structural limitations documented for UDCP (block artifacts from
-the transmission-map division, and Dark Channel Prior failure on
-large uniform regions).
+Although both methods were evaluated using images from the same
+datasets, the reported aggregate metrics were computed over
+different subsets. Therefore, their numerical differences should
+be interpreted as descriptive comparisons rather than strictly
+paired performance improvements.
+
+The reported results favor the CNN across all four evaluated
+datasets. However, a rigorous paired comparison would require
+evaluating both restoration methods on the same held-out images
+and calculating their performance differences on identical samples.
+
+The current evidence supports selecting the CNN as the preferred
+restoration baseline for subsequent pipeline development. It does
+not establish that the CNN eliminates every limitation of the
+classical method or that its restoration quality generalizes
+to arbitrary image resolutions and deployment conditions.
 
 ### Block A closure decision
 
